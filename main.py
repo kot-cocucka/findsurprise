@@ -108,7 +108,7 @@ async def box_clicked(
 
     user_name = query.from_user.first_name
     if user_name in game.users_found or user_name in game.users_not_found:
-        await query.edit_message_text(text=__("Вы уже нажимали на коробку!"))
+        await update_status(query.message, __("Вы уже нажимали на коробку!"), game)
         return
 
     if box_number == game.surprise_box:
