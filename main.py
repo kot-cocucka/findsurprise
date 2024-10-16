@@ -20,33 +20,28 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-header_length =  30
-
-header = 'Игра "Нажми на коробку"'
-header.rjust(header_length, ' ')
+header_length = 30
 
 
 def __(text: str) -> str:
-    if len(text) > header_length:
-        return text[:header_length - 3] + '...'
-    return text.rjust(header_length, ' ')
+    return text[:header_length - 3] + '...' if len(text) > header_length else text
+
 
 class Game:
     def __init__(self):
         self.active = False
-        self.surprise_box = None
+        self.surprise_boxes = set()  # Store multiple surprise boxes
         self.users_found = []
         self.users_not_found = []
         self.start_time = None
+        self.results = []  # List to store formatted results
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(__("Команда /start для начала игры."))
 
 
-async def start_game(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-) -> None:
+async def start_game(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.message.chat.type not in ["group", "supergroup"]:
         await update.message.reply_text(
             __("Эта игра может быть начата только в групповом чате.")
@@ -60,41 +55,36 @@ async def start_game(
         return
 
     game.active = True
-    game.surprise_box = random.randint(1, 9)
+    game.surprise_boxes = set(random.sample(range(1, 10), random.randint(1, 4)))
     game.users_found.clear()
     game.users_not_found.clear()
+    game.results.clear()
     game.start_time = time.time()
-    context.chat_data["game"] = game  # Store the game in chat_data
+    context.chat_data["game"] = game
 
-    logger.info(__(f"Игра начата: писюн в коробке {game.surprise_box}"))
+    logger.info(f"Игра начата: писюны в коробках {game.surprise_boxes}")
 
     await send_game_message(update, game)
 
 
 async def send_game_message(update: Update, game: Game) -> None:
     keyboard = await create_keyboard()
-
     await update.message.reply_text(
         text=__("Нажмите на коробку, чтобы найти писюн!"), reply_markup=keyboard
     )
 
 
 async def create_keyboard() -> InlineKeyboardMarkup:
-    buttons = []
-    for _ in range(1, 10):
-        buttons.append([InlineKeyboardButton("📦", callback_data=str(_))])
-
-    buttons.append(
-        [
-            InlineKeyboardButton(__("Закончить игру"), callback_data="end_game"),
-        ],
-    )
+    buttons = [
+        [InlineKeyboardButton("📦", callback_data='1'), InlineKeyboardButton("📦", callback_data='2'), InlineKeyboardButton("📦", callback_data='3')],
+        [InlineKeyboardButton("📦", callback_data='4'), InlineKeyboardButton("📦", callback_data='5'), InlineKeyboardButton("📦", callback_data='6')],
+        [InlineKeyboardButton("📦", callback_data='7'), InlineKeyboardButton("📦", callback_data='8'), InlineKeyboardButton("📦", callback_data='9')],
+        [InlineKeyboardButton("Закончить игру", callback_data='end_game')]
+    ]
     return InlineKeyboardMarkup(buttons)
 
 
-async def box_clicked(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-) -> None:
+async def box_clicked(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
     await query.answer()
 
@@ -104,20 +94,25 @@ async def box_clicked(
         await query.edit_message_text(text=__("Игра еще не началась!"))
         return
 
-    box_number = int(query.data)
+    try:
+        box_number = int(query.data)
+    except ValueError:
+        await query.edit_message_text(text=__("Неверный выбор!"))
+        return
 
     user_name = query.from_user.first_name
     if user_name in game.users_found or user_name in game.users_not_found:
-        await update_status(query.message, __("Вы уже нажимали на коробку!"), game)
+        await update_status(query.message, __(f"{user_name} хочет еще член!"), game)
         return
 
-    if box_number == game.surprise_box:
+    if box_number in game.surprise_boxes:
         game.users_found.append(user_name)
-        result_message = f"{user_name} 🍌"
+        result_message = f"{user_name}: 🍆 нашёл(ла) член"
     else:
         game.users_not_found.append(user_name)
-        result_message = f"{user_name} ❌"
+        result_message = f"{user_name}: 💨 открыл(а) пустую коробку"
 
+    game.results.append(result_message)
     logger.info(result_message)
 
     await update_status(query.message, result_message, game)
@@ -125,17 +120,14 @@ async def box_clicked(
 
 async def update_status(message, result_message: str, game: Game) -> None:
     keyboard = await create_keyboard()
-
     status = __("Статус игры:\n")
-    if game.users_found:
-        status += "Нашли: " + ", ".join(game.users_found) + "\n"
-    if game.users_not_found:
-        status += "Не нашли: " + ", ".join(game.users_not_found) + "\n"
+    status += "\n".join(game.results)  # Add each user's result
 
-    if not game.users_found and not game.users_not_found:
-        status += __("Никто ничего не нашел")
+    if result_message:
+        status = "\n".join((result_message,  "\n",  status, "\n"),)
+
     await message.edit_text(
-        text=f"{result_message}\n\n{status}", reply_markup=keyboard
+        text=f"{status}", reply_markup=keyboard
     )
 
 
@@ -149,43 +141,26 @@ async def end_game(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     user_name = query.from_user.first_name
-
-    if (
-        user_name not in game.users_found
-        and user_name not in game.users_not_found
-    ):
-        await query.edit_message_text(
-            text=__("Вы ещё не нажали на коробку!")
-        )
+    if user_name not in game.users_found and user_name not in game.users_not_found:
         await update_status(
             query.message,
-            __("Вы ещё не нажали на коробку!"),
+            __(f"{user_name} хочет всех обломать"),
             game,
         )
         return
-    else:
-        game.active = False
 
-        logger.info(
-            f"Игра окончена: нашли - {game.users_found}, не  - {game.users_not_found}"
-        )
+    game.active = False
+    logger.info(f"Игра окончена: нашли - {game.users_found}, не - {game.users_not_found}")
 
-        final_status = __("Игра окончена!\n")
-        final_status += __("Нашли: " + ", ".join(game.users_found) + "\n")
-        final_status += __("Не нашли: " + ", ".join(game.users_not_found) + "\n")
+    final_status = __("Игра окончена!\n")
+    final_status += "\n".join(game.results)
 
-        await query.edit_message_text(
-            text=final_status,
-            reply_markup=InlineKeyboardMarkup(
-                [
-                    [
-                        InlineKeyboardButton(
-                            __("еще одну игру"), callback_data="end_game1"
-                        ),
-                    ],
-                ],
-            ),
-        )
+    await query.edit_message_text(
+        text=final_status,
+        reply_markup=InlineKeyboardMarkup(
+            [[InlineKeyboardButton(__("Сыграть еще"), callback_data="start_game")]]
+        ),
+    )
 
 
 application = (
