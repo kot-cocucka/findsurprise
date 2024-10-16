@@ -1,0 +1,14 @@
+version: '3.9'
+
+services:
+  boxes_bot_app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: boxes_bot_app
+    ports:
+      - "8000:8000"
+    environment:
+      - PORT=8000
+    env_file:
+      - .env
