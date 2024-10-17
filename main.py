@@ -35,6 +35,7 @@ class Game:
     def __init__(self):
         self.active = False
         self.surprise_boxes = set()
+        self.golden_surprise = set()
         self.users_found = []
         self.users_not_found = []
         self.start_time = None
@@ -67,8 +68,23 @@ async def start_game(
         return
 
     game.active = True
-    game.surprise_boxes = set(
-        random.sample(range(1, 10), random.randint(1, 4))
+
+
+    total_surprises = random.randint(1, 4)
+    game.surprise_boxes = set(random.sample(range(1, 10), total_surprises))
+
+    num_golden_surprises = min(random.randint(0, 3), len(game.surprise_boxes))
+    if num_golden_surprises > 0:
+        game.golden_surprises = set(random.sample(list(game.surprise_boxes), num_golden_surprises))
+
+    game.users_found.clear()
+    game.users_not_found.clear()
+    game.results.clear()
+    game.start_time = time.time()
+    context.chat_data["game"] = game
+
+    logger.info(
+        f"Игра начата: писюны в коробках {game.surprise_boxes}, золотые бананы: {game.golden_surprises}"
     )
     game.users_found.clear()
     game.users_not_found.clear()
@@ -114,9 +130,7 @@ async def create_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(buttons)
 
 
-async def box_clicked(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-) -> None:
+async def box_clicked(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
     await query.answer()
 
@@ -139,7 +153,10 @@ async def box_clicked(
         )
         return
 
-    if box_number in game.surprise_boxes:
+    if box_number in game.golden_surprises:
+        game.users_found.append(user_name)
+        result_message = f"{user_name}: 🍌 нашёл(ла) ЗОЛОТОЙ член"
+    elif box_number in game.surprise_boxes:
         game.users_found.append(user_name)
         result_message = f"{user_name}: 🍆 нашёл(ла) член"
     else:
@@ -207,23 +224,39 @@ async def end_game(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     game.active = False
     logger.info(
-        f"Игра окончена: нашли - {game.users_found}, не - {game.users_not_found}"
+        f"Игра окончена нашли - {game.users_found}, не - {game.users_not_found}"
     )
 
-    final_status = __("Игра окончена!\n")
+    final_status = __(f"Игра окончена юзером {user_name}! Результаты:\n")
     final_status += "\n".join(game.results)
+
+    keyboard = [
+        [
+            InlineKeyboardButton(
+                "🍌" if i in game.golden_surprises else ("🍆" if i in game.surprise_boxes else "💨"),
+                callback_data=str(i)
+            )
+            for i in range(1, 4)
+        ],
+        [
+            InlineKeyboardButton(
+                "🍌" if i in game.golden_surprises else ("🍆" if i in game.surprise_boxes else "💨"),
+                callback_data=str(i)
+            )
+            for i in range(4, 7)
+        ],
+        [
+            InlineKeyboardButton(
+                "🍌" if i in game.golden_surprises else ("🍆" if i in game.surprise_boxes else "💨"),
+                callback_data=str(i)
+            )
+            for i in range(7, 10)
+        ],
+    ]
 
     await query.edit_message_text(
         text=final_status,
-        reply_markup=InlineKeyboardMarkup(
-            [
-                [
-                    InlineKeyboardButton(
-                        __("Кнопка для нетерпеливых "), callback_data="counter"
-                    )
-                ]
-            ]
-        ),
+        reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
 
