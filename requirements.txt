@@ -1,4 +1,4 @@
-anyio==4.6.2.post1
+anyio==4.14.2
 APScheduler==3.10.4
 certifi==2024.8.30
 h11==0.14.0
